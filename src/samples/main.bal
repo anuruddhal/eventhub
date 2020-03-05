@@ -4,8 +4,8 @@ import ballerina/io;
 public function main() {
     eventhub:ClientEndpointConfiguration config = {
         sasKeyName: "dev",
-        sasKey: "",
-        resourceUri: ""
+        sasKey: "aaaaa",
+        resourceUri: "abc.com"
     };
     eventhub:Client c = <eventhub:Client>new eventhub:Client(config);
     map<string> brokerProps = {CorrelationId: "32119834", CorrelationId2: "32119834"};

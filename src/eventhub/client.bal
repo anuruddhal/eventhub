@@ -18,6 +18,7 @@ import ballerina/crypto;
 import ballerina/encoding;
 import ballerina/http;
 import ballerina/io;
+import ballerina/log;
 import ballerina/mime;
 import ballerina/time;
 
@@ -29,15 +30,22 @@ public type Client client object {
     private ClientEndpointConfiguration config;
     private string API_PREFIX = "";
 
-    # Gets called when the endpoint is being initialized during the module initialization.
     public function __init(ClientEndpointConfiguration config) returns error? {
         self.config = config;
         self.API_PREFIX = "?timeout=" + config.timeout.toString() + "&api-version=" + config.apiVersion;
     }
 
+    # Send a single event
+    #
+    # + userProperties - user properties 
+    # + publisherId - publisher ID 
+    # + data - event data
+    # + brokerProperties - broker properties
+    # + partitionId - partition ID
+    # + return - @EventHubError if an error occurs
     public remote function send(string | xml | json | byte[] | io:ReadableByteChannel | mime:Entity[] data,
     public map<string> userProperties = {}, public map<anydata> brokerProperties = {}, public int partitionId = -1,
-    public string publisherId = "") returns @tainted boolean | error {
+    public string publisherId = "") returns @tainted EventHubError? {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = self.getAuthorizedRequest();
         req.setHeader("Content-Type", "application/atom+xml;type=entry;charset=utf-8");
@@ -47,8 +55,7 @@ public type Client client object {
         if (brokerProperties.length() > 0) {
             json | error props = json.constructFrom(brokerProperties);
             if (props is error) {
-                Error err = error(EVENT_HUB_ERROR, message = "unbale to parse broker properties ", cause = props);
-                return err;
+                return error(EVENT_HUB_ERROR, message = "unbale to parse broker properties ", cause = props);
             } else {
                 req.addHeader("BrokerProperties", props.toJsonString());
             }
@@ -68,16 +75,18 @@ public type Client client object {
         if (response is http:Response) {
             int statusCode = response.statusCode;
             if (statusCode == 201) {
-                return true;
+                return;
             }
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API. status code: " + response.statusCode.toString()
             + ", payload: " + response.getTextPayload().toString());
         } else {
-            Error err = error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
-            return err;
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
+    # Get request with common headers
+    #
+    # + return - Return a http request with authorization header
     private function getAuthorizedRequest() returns http:Request {
         http:Request req = new;
         req.addHeader("Authorization", self.getSASToken());
@@ -88,11 +97,14 @@ public type Client client object {
         return req;
     }
 
-    public remote function sendBatch(BatchEvent batchEvent, public int partitionId = -1) returns boolean | error {
+    # Send batch of events
+    #
+    # + batchEvent - batch of events
+    # + partitionId - partition ID
+    # + return - Eventhub error if unsucessful 
+    public remote function sendBatch(BatchEvent batchEvent, public int partitionId = -1) returns EventHubError? {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
-        http:Request req = new;
-        string token = self.getSASToken();
-        req.addHeader("Authorization", token);
+        http:Request req = self.getAuthorizedRequest();
         req.setJsonPayload(self.getBatchEventJson(batchEvent));
         req.setHeader("content-type", "application/vnd.microsoft.servicebus.json");
         string postResource = "/messages";
@@ -102,18 +114,19 @@ public type Client client object {
         var response = clientEndpoint->post(postResource, req);
         if (response is http:Response) {
             int statusCode = response.statusCode;
-            if (statusCode == 201) {
-                return true;
+            if (statusCode != 201) {
+                return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API. status code: " + response.statusCode.toString()
+                + ", payload: " + response.getTextPayload().toString());
             }
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API. status code: " + response.statusCode.toString()
-            + ", payload: " + response.getTextPayload().toString());
         } else {
-            Error err = error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
-            return err;
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
-    public remote function getEventHub() returns @tainted xml | Error {
+    # Get Eventhub deatils
+    #
+    # + return - Return XML or Error
+    public remote function getEventHub() returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -130,12 +143,14 @@ public type Client client object {
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API. status code: " + response.statusCode.toString()
             + ", payload: " + response.getTextPayload().toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function getRevokedPublishers() returns @tainted xml | Error {
+    # Get details of revoked publisher
+    #
+    # + return - Return revoke publisher or Error
+    public remote function getRevokedPublishers() returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -149,15 +164,18 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API. status code: " + response.statusCode.toString()
+            return error(EVENT_HUB_ERROR, message = "invalid response while getting revoked publishers: status code: " + response.statusCode.toString()
             + ", payload: " + response.getTextPayload().toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function revokePublisher(string publisherName) returns @tainted xml | Error {
+    # Revoke a publisher
+    #
+    # + publisherName - publisher name 
+    # + return - Return revoke publisher details or error
+    public remote function revokePublisher(string publisherName) returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -171,14 +189,18 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.statusCode.toString());
+            return error(EVENT_HUB_ERROR, message = "invalid response while revoking publisher: " + publisherName
+            + ". " + response.statusCode.toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function resumePublisher(string publisherName) returns @tainted xml | Error {
+    # Resume a publisher
+    #
+    # + publisherName - publisher name 
+    # + return - Return publisher details or error
+    public remote function resumePublisher(string publisherName) returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -192,14 +214,17 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.statusCode.toString());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function listPartitions(string consumerGroupName) returns @tainted xml | Error {
+    # Lit available partitions
+    #
+    # + consumerGroupName - consumer group name 
+    # + return - Return partition list or error
+    public remote function listPartitions(string consumerGroupName) returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -213,14 +238,19 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.statusCode.toString());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
             io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function getPartition(string consumerGroupName, int partitionId) returns @tainted xml | Error {
+    # Get partition details
+    #
+    # + consumerGroupName - consumer group name
+    # + partitionId - partitionId
+    # + return - Returns partition details
+    public remote function getPartition(string consumerGroupName, int partitionId) returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -234,19 +264,22 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.statusCode.toString());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function getConsumerGroups(string consumergroupName) returns @tainted xml | Error {
+    # Get consumer group
+    #
+    # + consumerGroupName - consumer group name Parameter Description 
+    # + return - Return Consumer group details or error
+    public remote function getConsumerGroups(string consumerGroupName) returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
         req.addHeader("Authorization", token);
-        var response = clientEndpoint->get("/consumergroups/" + consumergroupName, req);
+        var response = clientEndpoint->get("/consumergroups/" + consumerGroupName, req);
         if (response is http:Response) {
             int statusCode = response.statusCode;
             io:println("Status code: " + statusCode.toString());
@@ -255,14 +288,16 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.statusCode.toString());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
-    public remote function listConsumerGroups() returns @tainted xml | Error {
+    # List consumer groups
+    #
+    # + return - Return list of consumer group or error
+    public remote function listConsumerGroups() returns @tainted xml | EventHubError {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = new;
         string token = self.getSASToken();
@@ -276,13 +311,16 @@ public type Client client object {
             if (xmlPayload is xml) {
                 return xmlPayload;
             }
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.statusCode.toString());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "Invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
         }
     }
 
+    # Convert batch event to json
+    #
+    # + batchEvent - batch event 
+    # + return - Return eventhub formatted json
     private function getBatchEventJson(BatchEvent batchEvent) returns json {
         json[] message = [];
         foreach var item in batchEvent.events {
@@ -300,10 +338,12 @@ public type Client client object {
             }
             message.push(j);
         }
-        io:println(message);
         return message;
     }
 
+    # Generate the SAS token
+    #
+    # + return - Return SAS token
     private function getSASToken() returns string {
         time:Time time = time:currentTime();
         int currentTimeMills = time.time / 1000;
@@ -315,6 +355,7 @@ public type Client client object {
         + <string>encoding:encodeUriComponent(self.config.resourceUri, "UTF-8")
         + "&sig=" + <string>encoding:encodeUriComponent(signature, "UTF-8")
         + "&se=" + expiry.toString() + "&skn=" + self.config.sasKeyName;
+        log:printDebug(() => io:sprintf("SAS token: [%s]", sasToken));
         return sasToken;
     }
 };
@@ -324,9 +365,9 @@ public type Client client object {
 # + sasKeyName - shared access service key name
 # + sasKey - shared access service key 
 # + resourceUri - resource URI
-# + timeout - timeout Parameter Description 
-# + apiVersion - apiVersion Parameter Description
-# + enableRetry - enableRetry Parameter Description
+# + timeout - timeout
+# + apiVersion - apiVersion 
+# + enableRetry - enableRetry
 public type ClientEndpointConfiguration record {|
     string sasKeyName;
     string sasKey;
@@ -336,12 +377,20 @@ public type ClientEndpointConfiguration record {|
     boolean enableRetry = true;
 |};
 
+# Batch Message Record
+#
+# + data - event data 
+# + brokerProperties - brokerProperties 
+# + userProperties - userProperties 
 public type BatchMessage record {|
     anydata data;
     map<json> brokerProperties?;
     map<json> userProperties?;
 |};
 
+# Batch Event Record
+#
+# + events - set of BatchMessages
 public type BatchEvent record {|
     BatchMessage[] events;
 |};

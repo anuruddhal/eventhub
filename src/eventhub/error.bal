@@ -27,4 +27,4 @@ public type Detail record {|
 public const EVENT_HUB_ERROR = "{azure/eventhub}Error";
 
 # Represents a eventHub generic error
-public type Error error<EVENT_HUB_ERROR, Detail>;
+public type EventHubError error<EVENT_HUB_ERROR>;
