@@ -18,6 +18,6 @@ public function main() {
             {data: "Message3", brokerProperties: brokerProps, userProperties: userProps}
         ]
     };
-    var b = c->send("hello");
+    var b = c->resumePublisher("hello");
     io:println(b);
 }

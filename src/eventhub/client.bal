@@ -102,7 +102,7 @@ public type Client client object {
     # + batchEvent - batch of events
     # + partitionId - partition ID
     # + return - Eventhub error if unsucessful 
-    public remote function sendBatch(BatchEvent batchEvent, public int partitionId = -1) returns EventHubError? {
+    public remote function sendBatch(BatchEvent batchEvent, public int partitionId = -1) returns @tainted EventHubError? {
         http:Client clientEndpoint = new ("https://" + self.config.resourceUri);
         http:Request req = self.getAuthorizedRequest();
         req.setJsonPayload(self.getBatchEventJson(batchEvent));
@@ -143,7 +143,7 @@ public type Client client object {
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API. status code: " + response.statusCode.toString()
             + ", payload: " + response.getTextPayload().toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -167,7 +167,7 @@ public type Client client object {
             return error(EVENT_HUB_ERROR, message = "invalid response while getting revoked publishers: status code: " + response.statusCode.toString()
             + ", payload: " + response.getTextPayload().toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -192,7 +192,7 @@ public type Client client object {
             return error(EVENT_HUB_ERROR, message = "invalid response while revoking publisher: " + publisherName
             + ". " + response.statusCode.toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -216,7 +216,7 @@ public type Client client object {
             }
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -240,8 +240,7 @@ public type Client client object {
             }
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            io:println("Error when calling the API: ", response.reason());
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -266,7 +265,7 @@ public type Client client object {
             }
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -290,7 +289,7 @@ public type Client client object {
             }
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
@@ -313,7 +312,7 @@ public type Client client object {
             }
             return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.statusCode.toString());
         } else {
-            return error(EVENT_HUB_ERROR, message = "invalid response from EventHub API " + response.reason());
+            return error(EVENT_HUB_ERROR, message = "error invoking EventHub API ", cause = response);
         }
     }
 
